@@ -1,0 +1,225 @@
+#include "opencv2/core/core.hpp"
+#include "opencv2/contrib/contrib.hpp"
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/objdetect/objdetect.hpp"
+#include "opencv2/opencv.hpp"
+#include <stdio.h>
+#include <cmath>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
+#define frame_inicio 50
+#define frame_final 200
+#define PATH_RGB "/imatge/gcordova/workspace/opencv/fotos_videos/frontal-low/image/seq_"
+#define PATH_DEPTH "/imatge/gcordova/workspace/opencv/fotos_videos/frontal-low/depth/seq_"
+
+#define ANGULO_ROTACION -90
+
+#define umbral 15
+#define ventana 5
+
+#define a 50 //ha pasado la puerta
+#define b 80 // fuera de la sala
+
+using namespace std;
+using namespace cv;
+
+/** Function Headers */
+
+
+Mat rotate(Mat src, double angle);
+double angle(cv::Point pt1, cv::Point pt2, cv::Point pt0);
+/** Global variables */
+
+ struct datos {
+	int frame;
+	Rect rectangulo;
+	Rect intersec;
+	int detec;
+	int direccion;
+	int detReal;
+	float media_depth;
+	float suav_depth;
+ };
+
+
+cv::Rect roi2;
+cv::Mat histograma_inicio;
+double angle(cv::Point pt1, cv::Point pt2, cv::Point pt0)
+{
+	double dx1 = pt1.x - pt0.x;
+	double dy1 = pt1.y - pt0.y;
+	double dx2 = pt2.x - pt0.x;
+	double dy2 = pt2.y - pt0.y;
+	return (dx1*dx2 + dy1*dy2) / sqrt((dx1*dx1 + dy1*dy1)*(dx2*dx2 + dy2*dy2) + 1e-10);
+}
+Mat rotate(Mat src, double angle)
+{
+
+    Mat rot;
+    Point2f center(src.cols/2.0, src.rows/2.0);
+    Mat r = getRotationMatrix2D(center, angle, 1.0);
+    cv::Rect bbox = cv::RotatedRect(center,src.size(), angle).boundingRect();
+    // adjust transformation matrix
+    r.at<double>(0,2) += bbox.width/2.0 - center.x;
+    r.at<double>(1,2) += bbox.height/2.0 - center.y;
+    warpAffine(src, rot, r, bbox.size());
+    return rot;
+
+}
+
+ /*funcion main */
+ int main( int argc, const char** argv )
+ {
+
+	vector<datos> media;
+	datos dato;
+	if( argc != 1)
+	{
+		cout <<" Usage: display_image ImageToLoadAndDisplay" << endl;
+		return -1;
+	}
+//---------------------------------------------------------------------------------------------------
+// Carga de imagenes
+//---------------------------------------------------------------------------------------------------
+	Mat image, image_depth;
+	for(int i=frame_inicio;i< frame_final; i++)
+	{
+		dato.frame = i; // cargar UNA imagen de la carpeta en imgname y completa la ruta
+		string imgname=PATH_RGB;
+		char cbuff[20];
+		sprintf (cbuff, "%06d", i); //variar los 6 ceros
+		imgname.append(cbuff);
+		imgname.append(".png");
+		image = imread(imgname , CV_LOAD_IMAGE_COLOR);   // lee la imagen
+//---------------------------------------------------------------------------------------------------
+// Carga de imagenes depth
+//---------------------------------------------------------------------------------------------------
+		string imgname2= PATH_DEPTH;
+		imgname2.append(cbuff);
+		imgname2.append(".png");
+		image_depth = imread(imgname2 ,  CV_LOAD_IMAGE_ANYCOLOR | CV_LOAD_IMAGE_ANYDEPTH);   // lee la imagen
+
+//---------------------------------------------------------------------------------------------------
+// inicio del Pre Procesado
+//---------------------------------------------------------------------------------------------------
+		      if( !image.empty() && !image_depth.empty())
+			{
+				Mat rot, rot_depth;
+				rot = rotate(image, ANGULO_ROTACION); // llamada de la funcion de rotacion de imagen
+				image=rot;
+
+//---------------------------------------------------------------------------------------------------
+// Rotar el DEPTH
+//---------------------------------------------------------------------------------------------------
+				rot_depth=rotate(image_depth, ANGULO_ROTACION );
+				image_depth=rot_depth;
+				cout << "1(^.^)"<< std::endl ;
+
+//---------------------------------------------------------------------------------------------------
+// ROI
+//---------------------------------------------------------------------------------------------------
+
+				if(i==frame_inicio )
+				{ 	//intermedios 5-6
+
+//					cout << "area roi "<< roi.area()<< "area roi 2 "<< roi2.area()<<std::endl ;
+				}
+//---------------------------------------------------------------------------------------------------
+// Distancia DEPTH
+//---------------------------------------------------------------------------------------------------
+				double min;
+				double max;
+				cv::minMaxIdx(image_depth, &min, &max);
+				cv::Mat adjMap, grises, histograma, histo_norm;
+				// Histogram Equalization
+				float scale = 255 / (max-min);
+				// expand your range to 0..255. Similar to histEq();
+				image_depth.convertTo(adjMap,CV_8UC1,scale, -min*scale);
+             //   imshow("map", adjMap );
+             //   waitKey(0);
+				Mat blurred(adjMap);
+				//medianBlur(blurred, blurred, 51);
+
+				GaussianBlur( blurred, blurred, Size(81, 81 ), 0.5, 0.9 );
+
+                grises =adjMap;
+                //cv::cvtColor(adjMap, grises, CV_BGR2GRAY);
+
+
+                // Podríamos "cuantizar" a un reducido número de valores para acelerar el algoritmo
+                int histSize = 256;
+                int hist_w = 520; int hist_h = 400;
+                int bin_w = cvRound( (double) hist_w/histSize );
+                Mat histImage( hist_h, hist_w, CV_8UC3, Scalar( 0,0,0) );
+                Mat histImage_rest( hist_h, hist_w, CV_8UC3, Scalar( 0,0,0) );
+                cout << "(^.^)"<< std::endl ;
+                float range[] = { 0, 256 };
+                // Como sólo tenemos un canal (segundo parámetro) sólo ponemos un elemento
+                const float* histRange = { range };
+
+                // Calculamos el histograma
+
+                //void calcHist(const Mat* images, int nimages, const int* channels, InputArray mask, OutputArray hist, int dims, const int* histSize, const float** ranges, bool uniform=true, bool accumulate=false )
+                cv::calcHist(&grises, 1, 0, cv::Mat(), histograma, 1, &histSize, &histRange);
+                // Normalizamos el histograma para dibujarlo en el recuadro
+
+  //              cout << "2(^.^)"<< std::endl ;
+               // void normalize(InputArray src, OutputArray dst, double alpha=1, double beta=0, int norm_type=NORM_L2, int dtype=-1, InputArray mask=noArray() )
+                cv::normalize(histograma, histograma, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat() );
+
+//---------------------------------------------------------------------------------------------------
+// ROI
+//---------------------------------------------------------------------------------------------------
+
+				if(i==frame_inicio )
+				{ 	//intermedios 5-6
+					histograma_inicio=histograma;
+//					cout << "area roi "<< roi.area()<< "area roi 2 "<< roi2.area()<<std::endl ;
+				}
+
+
+                // Dibujamos el histograma
+
+                for (int i = 0; i < histSize; i++)
+                {
+                	//cv::line(histImage, cv::Point(x, 138 - histo_norm.at<float>(i)), cv::Point(x, 139), cv::Scalar(191), 1, 8);
+
+                	line( histImage, Point( bin_w*(i-1), hist_h - cvRound(histograma.at<float>(i-1)) ) ,Point( bin_w*(i), hist_h - cvRound(histograma.at<float>(i)) ),Scalar( 0, 0, 255), 2, 8, 0  );
+                	line( histImage_rest, Point( bin_w*(i-1), hist_h - cvRound(histograma.at<float>(i-1))+ cvRound(histograma_inicio.at<float>(i-1)) ),Point( bin_w*(i), hist_h - cvRound(histograma.at<float>(i))+ cvRound(histograma_inicio.at<float>(i-1))),Scalar( 0, 255,0), 2, 8, 0  );
+                	//line( histImage_rest, Point( bin_w*(i-1), hist_h - cvRound(histograma_inicio.at<float>(i-1)) ),Point( bin_w*(i), hist_h - cvRound(histograma_inicio.at<float>(i-1))),Scalar( 255, 0,0), 2, 8, 0  );
+                }
+
+
+                //				rectangle(image, roi2.tl(), roi2.br(), cv::Scalar(0,255,0), 2);
+                //void compare(InputArray src1, InputArray src2, OutputArray dst, int cmpop)¶
+//                Mat dst;
+//                compare(histImage, histImage_rest,  dst, CMP_EQ);
+                cv::imshow("histograma", histImage);
+                cv::imshow("histograma resta", histImage_rest);
+                cv::imshow("Fotogramas", grises);
+//                cv::imshow("dst", dst);
+				if (waitKey(1) == 27)
+				{	// se puede cambiar en funcion de mi tiempo de procesado deberia bajarlo
+						waitKey(0);
+				}
+
+ 			}
+		    else
+				{
+					printf(" --(!) No imagen -- Break!");
+				}
+		}
+
+
+//--------------------------------------------------------------------------------------------------------------------------------
+	return 0;
+}
+
+//cout << "(^.^)"<< std::endl ;
+
+
+
+
